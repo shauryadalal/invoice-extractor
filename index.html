@@ -18,6 +18,20 @@
   --mono:'IBM Plex Mono',monospace;
   --sans:'IBM Plex Sans',sans-serif;
 }
+[data-theme="dark"] {
+  --bg:#0f0f0e; --surface:#1a1a18; --border:#2e2e2a; --border2:#252522;
+  --text:#e8e6df; --sub:#7a7870; --accent:#e8e6df;
+  --green:#2ea855; --green-bg:#0d2818;
+  --red:#e05555; --red-bg:#2a0e0e;
+  --yellow:#d4a017; --yellow-bg:#2a2008;
+  --blue:#4a7fe0; --blue-bg:#0d1a30;
+}
+[data-theme="dark"] .drop-zone:hover,[data-theme="dark"] .drop-zone.over{background:#222220}
+[data-theme="dark"] .field-input:focus{background:#111110}
+[data-theme="dark"] .li-input:focus{background:#111110}
+[data-theme="dark"] .li-table th{background:#111110}
+[data-theme="dark"] .preview-body{background:#111110}
+[data-theme="dark"] .btn.primary:hover{background:#ccc;color:#000}
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14px;min-height:100vh;padding:36px 20px}
 .shell{max-width:1100px;margin:0 auto;display:flex;flex-direction:column;gap:22px}
@@ -136,8 +150,7 @@ hr{border:none;border-top:1px solid var(--border)}
 <div class="shell">
   <div class="hdr">
     <h1>Invoice <em>Processor</em></h1>
-    <span class="hdr-badge">Gemini 2.5 Flash · Free tier</span>
-    <span class="hdr-sub">localhost:8765</span>
+    <button class="btn sm" id="theme-toggle" onclick="toggleTheme()" title="Toggle dark mode" style="margin-left:auto">◐ Dark</button>
   </div>
   <hr>
 
@@ -609,7 +622,7 @@ function exportExcel() {
   });
   const de = rows.length + 1;
   rows.push(['','TOTAL','','','','','','','','','','',
-    `=SUM(M2:M${de})`, `=SUM(N2:N${de})`, '','','','','']);
+    {f:`SUM(M2:M${de})`,t:'n'}, {f:`SUM(N2:N${de})`,t:'n'}, '','','','','']);
 
   const ws1 = XLSX.utils.aoa_to_sheet([hdr, ...rows]);
   ws1['!cols'] = [{wch:4},{wch:28},{wch:16},{wch:13},{wch:13},{wch:24},{wch:18},
@@ -648,7 +661,7 @@ function exportExcel() {
               num(f.gst_amount), num(f.total_amount), f.currency||'', f.account_code||''];
     });
     const ve = vrows.length+1;
-    vrows.push(['','TOTAL','','','',`=SUM(F2:F${ve})`,'','']);
+    vrows.push(['','TOTAL','','','',{f:`SUM(F2:F${ve})`,t:'n'},'','']);
     const vws = XLSX.utils.aoa_to_sheet([vhdr, ...vrows]);
     vws['!cols'] = [{wch:4},{wch:28},{wch:16},{wch:13},{wch:13},{wch:13},{wch:10},{wch:13}];
     XLSX.utils.book_append_sheet(wb, vws, vendor.replace(/[:\\/?*[\]]/g,'').slice(0,31)||'Vendor');
@@ -694,6 +707,23 @@ function toast(msg, type='info') {
   el.className=`toast ${type}`; el.textContent=msg; el.onclick=()=>el.remove();
   wrap.appendChild(el); setTimeout(()=>el.remove(), 5000);
 }
+function toggleTheme() {
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const next = isDark ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  document.getElementById('theme-toggle').textContent = next === 'dark' ? '◑ Light' : '◐ Dark';
+  localStorage.setItem('theme', next);
+}
+(function() {
+  const saved = localStorage.getItem('theme');
+  if (saved === 'dark') {
+    document.documentElement.setAttribute('data-theme', 'dark');
+    document.addEventListener('DOMContentLoaded', () => {
+      const btn = document.getElementById('theme-toggle');
+      if (btn) btn.textContent = '◑ Light';
+    });
+  }
+})();
 </script>
 </body>
 </html>
