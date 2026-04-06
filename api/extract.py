@@ -1,9 +1,12 @@
 """
-Vercel serverless function — proxies invoice image/PDF to Gemini and returns
-extracted fields as JSON. Identical logic to server.py's /extract endpoint.
+Vercel serverless function — /api/extract
+Proxies invoice image/PDF to Gemini and returns extracted fields as JSON.
+
+Vercel Python runtime requires a BaseHTTPRequestHandler subclass named 'handler'.
+Logic is identical to server.py's do_POST.
 
 Environment variable required:
-    GEMINI_API_KEY   — set this in your Vercel project settings
+    GEMINI_API_KEY  — set in Vercel project settings → Environment Variables
 """
 import json
 import os
@@ -11,8 +14,7 @@ import urllib.request
 import urllib.error
 from http.server import BaseHTTPRequestHandler
 
-MODEL = "gemini-2.5-flash"
-
+MODEL      = "gemini-2.5-flash"
 GEMINI_URL = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
     + MODEL
@@ -54,113 +56,114 @@ Rules:
 - Return ONLY the JSON object."""
 
 
-def handler(request):
-    """Vercel Python handler — called for every request to /api/extract."""
+class handler(BaseHTTPRequestHandler):
 
-    # CORS pre-flight
-    if request.method == "OPTIONS":
-        return Response("", 204, {
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "POST, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type",
-        })
+    def log_message(self, fmt, *args):
+        pass  # suppress default Apache-style access logs
 
-    if request.method != "POST":
-        return _error(405, "Method not allowed")
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.end_headers()
 
-    api_key = os.environ.get("GEMINI_API_KEY", "")
-    if not api_key:
-        return _error(500, "GEMINI_API_KEY not configured — add it in Vercel project settings")
+    def do_POST(self):
+        api_key = os.environ.get("GEMINI_API_KEY", "")
+        if not api_key:
+            self._error(500, "GEMINI_API_KEY not configured — add it in Vercel project settings")
+            return
 
-    # Parse request body
-    try:
-        body = request.body
-        if isinstance(body, (bytes, bytearray)):
-            body = body.decode("utf-8")
-        payload  = json.loads(body)
-        b64      = payload["b64"]
-        mimeType = payload["mimeType"]
-    except Exception as e:
-        return _error(400, "Bad request: " + str(e))
-
-    # Build Gemini request
-    gemini_body = {
-        "contents": [{
-            "parts": [
-                {"inline_data": {"mime_type": mimeType, "data": b64}},
-                {"text": PROMPT},
-            ]
-        }],
-        "generationConfig": {"temperature": 0},
-    }
-
-    req = urllib.request.Request(
-        GEMINI_URL.format(key=api_key),
-        data=json.dumps(gemini_body).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-
-    # Call Gemini
-    try:
-        with urllib.request.urlopen(req, timeout=90) as resp:
-            gemini_out = json.loads(resp.read())
-    except urllib.error.HTTPError as e:
-        err_bytes = e.read()
+        # Read request body
+        length = int(self.headers.get("Content-Length", 0))
         try:
-            msg = json.loads(err_bytes).get("error", {}).get("message", str(err_bytes))
-        except Exception:
-            msg = err_bytes.decode("utf-8", errors="replace")
-        return _error(e.code, "Gemini API error " + str(e.code) + ": " + msg)
-    except Exception as e:
-        return _error(502, "Network error reaching Gemini: " + str(e))
+            payload  = json.loads(self.rfile.read(length))
+            b64      = payload["b64"]
+            mimeType = payload["mimeType"]
+        except Exception as e:
+            self._error(400, "Bad request: " + str(e))
+            return
 
-    # Parse Gemini response
-    try:
-        if "candidates" not in gemini_out or not gemini_out["candidates"]:
-            block = gemini_out.get("promptFeedback", {}).get("blockReason", "unknown")
-            return _error(422, "Gemini returned no output. Block reason: " + block)
+        # Build Gemini request
+        gemini_body = {
+            "contents": [{
+                "parts": [
+                    {"inline_data": {"mime_type": mimeType, "data": b64}},
+                    {"text": PROMPT},
+                ]
+            }],
+            "generationConfig": {"temperature": 0},
+        }
 
-        candidate = gemini_out["candidates"][0]
-        finish    = candidate.get("finishReason", "")
-        if finish not in ("STOP", "MAX_TOKENS", ""):
-            return _error(422, "Gemini stopped early. Finish reason: " + finish)
+        req = urllib.request.Request(
+            GEMINI_URL.format(key=api_key),
+            data=json.dumps(gemini_body).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
 
-        text = candidate["content"]["parts"][0]["text"]
-    except (KeyError, IndexError) as e:
-        return _error(502, "Unexpected Gemini response structure: " + str(e))
+        # Call Gemini
+        try:
+            with urllib.request.urlopen(req, timeout=90) as resp:
+                gemini_out = json.loads(resp.read())
+        except urllib.error.HTTPError as e:
+            err_bytes = e.read()
+            try:
+                msg = json.loads(err_bytes).get("error", {}).get("message", str(err_bytes))
+            except Exception:
+                msg = err_bytes.decode("utf-8", errors="replace")
+            self._error(e.code, "Gemini API error " + str(e.code) + ": " + msg)
+            return
+        except Exception as e:
+            self._error(502, "Network error reaching Gemini: " + str(e))
+            return
 
-    # Strip markdown fences if the model added them anyway
-    clean = text.strip()
-    if clean.startswith("```"):
-        clean = clean.split("```", 2)[-1]
-        if clean.lower().startswith("json"):
-            clean = clean[4:]
-        clean = clean.rsplit("```", 1)[0].strip()
+        # Parse Gemini response
+        try:
+            if "candidates" not in gemini_out or not gemini_out["candidates"]:
+                block = gemini_out.get("promptFeedback", {}).get("blockReason", "unknown")
+                self._error(422, "Gemini returned no output. Block reason: " + block)
+                return
 
-    try:
-        extracted = json.loads(clean)
-    except json.JSONDecodeError as e:
-        return _error(502, "Gemini returned non-JSON output: " + str(e) + " | received: " + text[:200])
+            candidate = gemini_out["candidates"][0]
+            finish    = candidate.get("finishReason", "")
+            if finish not in ("STOP", "MAX_TOKENS", ""):
+                self._error(422, "Gemini stopped early. Finish reason: " + finish)
+                return
 
-    return Response(
-        json.dumps(extracted),
-        200,
-        {"Content-Type": "application/json", "Access-Control-Allow-Origin": "*"},
-    )
+            text = candidate["content"]["parts"][0]["text"]
+        except (KeyError, IndexError) as e:
+            self._error(502, "Unexpected Gemini response structure: " + str(e))
+            return
 
+        # Strip markdown fences if the model added them anyway
+        clean = text.strip()
+        if clean.startswith("```"):
+            clean = clean.split("```", 2)[-1]
+            if clean.lower().startswith("json"):
+                clean = clean[4:]
+            clean = clean.rsplit("```", 1)[0].strip()
 
-# ── Minimal response helper (Vercel Python uses a dict-based protocol) ─────────
-class Response:
-    def __init__(self, body, status=200, headers=None):
-        self.body   = body
-        self.status = status
-        self.headers = headers or {}
+        try:
+            extracted = json.loads(clean)
+        except json.JSONDecodeError as e:
+            self._error(502, "Gemini returned non-JSON: " + str(e) + " | received: " + text[:200])
+            return
 
+        self._ok(extracted)
 
-def _error(code, msg):
-    return Response(
-        json.dumps({"error": msg}),
-        code,
-        {"Content-Type": "application/json", "Access-Control-Allow-Origin": "*"},
-    )
+    def _ok(self, data):
+        body = json.dumps(data).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _error(self, code, msg):
+        body = json.dumps({"error": msg}).encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(body)
