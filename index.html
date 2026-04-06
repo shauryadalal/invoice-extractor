@@ -603,6 +603,28 @@ function exportExcel() {
 
   const wb = XLSX.utils.book_new();
 
+  // Apply bold + thick-outside-border box to a total row
+  function styleTotalRow(ws, rowNum, numCols) {
+    for (let c = 0; c < numCols; c++) {
+      const addr = XLSX.utils.encode_cell({r: rowNum - 1, c});
+      if (!ws[addr]) ws[addr] = {t: 's', v: ''};
+      ws[addr].s = {
+        font: {bold: true},
+        border: {
+          top:    {style: 'medium'},
+          bottom: {style: 'medium'},
+          left:   c === 0           ? {style: 'medium'} : {style: 'thin'},
+          right:  c === numCols - 1 ? {style: 'medium'} : {style: 'thin'},
+        },
+      };
+    }
+  }
+
+  // Sum a numeric field across a list of invoices
+  function sumField(list, field) {
+    return list.reduce((s, inv) => s + (parseFloat(String(inv.fields[field]||'').replace(/[^\d.]/g,''))||0), 0);
+  }
+
   // ── Sheet 1: Summary ledger ───────────────────────────────────────────────
   const hdr = ['#','File','Invoice #','Date','Due Date','Vendor','Vendor GSTIN',
                'Bill To','Bill To GSTIN','Subtotal','Discount','Tax','GST/Tax Amt',
@@ -620,11 +642,11 @@ function exportExcel() {
       new Date().toISOString().replace('T',' ').slice(0,19),
     ];
   });
-  const de = rows.length + 1;
   rows.push(['','TOTAL','','','','','','','','','','',
-    {f:`SUM(M2:M${de})`,t:'n'}, {f:`SUM(N2:N${de})`,t:'n'}, '','','','','']);
+    sumField(done,'gst_amount'), sumField(done,'total_amount'), '','','','','']);
 
   const ws1 = XLSX.utils.aoa_to_sheet([hdr, ...rows]);
+  styleTotalRow(ws1, rows.length + 1, hdr.length);
   ws1['!cols'] = [{wch:4},{wch:28},{wch:16},{wch:13},{wch:13},{wch:24},{wch:18},
                   {wch:22},{wch:18},{wch:12},{wch:10},{wch:12},{wch:12},{wch:12},
                   {wch:10},{wch:16},{wch:13},{wch:30},{wch:20}];
@@ -660,15 +682,15 @@ function exportExcel() {
       return [i+1, inv.name, f.invoice_number||'', f.invoice_date||'',
               num(f.gst_amount), num(f.total_amount), f.currency||'', f.account_code||''];
     });
-    const ve = vrows.length+1;
-    vrows.push(['','TOTAL','','','',{f:`SUM(F2:F${ve})`,t:'n'},'','']);
+    vrows.push(['','TOTAL','','', sumField(vinvs,'gst_amount'), sumField(vinvs,'total_amount'),'','']);
     const vws = XLSX.utils.aoa_to_sheet([vhdr, ...vrows]);
+    styleTotalRow(vws, vrows.length + 1, vhdr.length);
     vws['!cols'] = [{wch:4},{wch:28},{wch:16},{wch:13},{wch:13},{wch:13},{wch:10},{wch:13}];
     XLSX.utils.book_append_sheet(wb, vws, vendor.replace(/[:\\/?*[\]]/g,'').slice(0,31)||'Vendor');
   });
 
   const ts = new Date().toISOString().replace(/[:.]/g,'-').slice(0,19);
-  XLSX.writeFile(wb, `invoices_${ts}.xlsx`);
+  XLSX.writeFile(wb, `invoices_${ts}.xlsx`, {cellStyles: true});
   toast(`Exported — ${done.length} invoices · ${Object.keys(byV).length} vendors · line items sheet`, 'ok');
 }
 
