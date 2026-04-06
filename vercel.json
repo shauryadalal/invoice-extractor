@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "builds": [
+    { "src": "index.html", "use": "@vercel/static" },
+    { "src": "api/extract.py", "use": "@vercel/python" }
+  ],
+  "routes": [
+    { "src": "/api/extract", "dest": "/api/extract.py" },
+    { "src": "/(.*)", "dest": "/index.html" }
+  ]
+}

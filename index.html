@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Invoice Processor</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
+
+:root {
+  --bg:#f5f4f0; --surface:#fff; --border:#d8d5cc; --border2:#e8e5dc;
+  --text:#1a1915; --sub:#7a7870; --accent:#1a1915;
+  --green:#1a6b3c; --green-bg:#edf7f1;
+  --red:#8b1c1c; --red-bg:#fdf0f0;
+  --yellow:#7a5c00; --yellow-bg:#fef9e7;
+  --blue:#1a47b0; --blue-bg:#e8f0fe;
+  --mono:'IBM Plex Mono',monospace;
+  --sans:'IBM Plex Sans',sans-serif;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14px;min-height:100vh;padding:36px 20px}
+.shell{max-width:1100px;margin:0 auto;display:flex;flex-direction:column;gap:22px}
+
+/* header */
+.hdr{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.hdr h1{font-family:var(--mono);font-size:20px;font-weight:600;letter-spacing:-.02em}
+.hdr h1 em{font-style:normal;color:var(--sub);font-weight:300}
+.hdr-badge{font-size:10px;font-family:var(--mono);background:var(--green-bg);color:var(--green);border:1px solid #a8dfc0;border-radius:20px;padding:3px 10px}
+.hdr-sub{font-size:11px;color:var(--sub);font-family:var(--mono);margin-left:auto}
+hr{border:none;border-top:1px solid var(--border)}
+
+/* drop zone */
+.drop-zone{border:2px dashed var(--border);border-radius:8px;padding:48px 24px;text-align:center;cursor:pointer;background:var(--surface);transition:border-color .15s,background .15s;user-select:none}
+.drop-zone:hover,.drop-zone.over{border-color:var(--accent);background:#f9f8f4}
+.drop-icon{font-size:32px;margin-bottom:12px;opacity:.4}
+.drop-title{font-family:var(--mono);font-size:14px;font-weight:500;margin-bottom:6px}
+.drop-sub{font-size:12px;color:var(--sub)}
+#file-input{display:none}
+
+/* queue card */
+.queue-wrap{background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.queue-hdr{display:flex;align-items:center;padding:12px 16px;border-bottom:1px solid var(--border2);gap:10px;flex-wrap:wrap}
+.queue-title{font-family:var(--mono);font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
+.queue-count{font-family:var(--mono);font-size:10px;color:var(--sub);background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:2px 8px}
+.queue-actions{display:flex;gap:8px;margin-left:auto;flex-wrap:wrap}
+
+/* progress */
+#prog-wrap{padding:8px 16px 12px;border-bottom:1px solid var(--border2)}
+#prog-label{font-size:10px;color:var(--sub);font-family:var(--mono);margin-bottom:5px}
+.prog-bar{height:3px;background:var(--border2);border-radius:2px;overflow:hidden}
+.prog-fill{height:100%;background:var(--accent);border-radius:2px;transition:width .3s ease}
+
+/* error box */
+.err-box{font-family:var(--mono);font-size:11px;color:var(--red);background:var(--red-bg);border-bottom:1px solid #f0b8b8;padding:10px 16px;line-height:1.6;word-break:break-all;white-space:pre-wrap}
+
+/* file list */
+.file-list{display:flex;flex-direction:column}
+.file-row{border-bottom:1px solid var(--border2);display:flex;align-items:flex-start;gap:12px;padding:14px 16px}
+.file-row:last-child{border-bottom:none}
+.file-icon{font-size:20px;flex-shrink:0;margin-top:2px;cursor:pointer;opacity:.75;transition:opacity .12s}
+.file-icon:hover{opacity:1}
+.file-meta{flex:1;min-width:0}
+.file-name{font-family:var(--mono);font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.file-size{font-size:10px;color:var(--sub);margin-top:2px;font-family:var(--mono)}
+.file-fields{margin-top:10px;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px}
+.field-group{display:flex;flex-direction:column;gap:2px}
+.field-label{font-size:9px;font-family:var(--mono);font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--sub)}
+.field-input{font-family:var(--mono);font-size:12px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:5px 8px;color:var(--text);outline:none;width:100%;transition:border-color .12s}
+.field-input:focus{border-color:var(--accent);background:#fff}
+.field-input.edited{border-color:#b8d0fa;color:var(--blue)}
+.field-input.missing{border-color:#f0b8b8;background:#fffafa}
+
+/* line items */
+.li-section{margin-top:10px}
+.li-label{font-size:9px;font-family:var(--mono);font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--sub);margin-bottom:6px}
+.li-table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11px}
+.li-table th{text-align:left;padding:4px 8px;font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:var(--sub);border-bottom:1px solid var(--border2);background:#fafaf7}
+.li-table td{padding:4px 8px;border-bottom:1px solid var(--border2);vertical-align:middle}
+.li-table tr:last-child td{border-bottom:none}
+.li-input{font-family:var(--mono);font-size:11px;background:transparent;border:1px solid transparent;border-radius:3px;padding:2px 4px;color:var(--text);width:100%;outline:none;min-width:60px}
+.li-input:hover{border-color:var(--border);background:var(--bg)}
+.li-input:focus{border-color:var(--accent);background:#fff}
+
+/* status + action */
+.file-status-row{display:flex;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap}
+.badge{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10px;font-weight:500;padding:3px 8px;border-radius:20px;white-space:nowrap}
+.bw{background:var(--bg);color:var(--sub);border:1px solid var(--border)}
+.br{background:var(--yellow-bg);color:var(--yellow);border:1px solid #f0d88a}
+.bg{background:var(--green-bg);color:var(--green);border:1px solid #a8dfc0}
+.be{background:var(--red-bg);color:var(--red);border:1px solid #f0b8b8}
+.spinner{display:inline-block;width:8px;height:8px;border:1.5px solid currentColor;border-top-color:transparent;border-radius:50%;animation:spin .6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* buttons */
+.btn{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:11px;font-weight:500;padding:6px 12px;border-radius:5px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;white-space:nowrap;transition:all .12s}
+.btn:hover{border-color:var(--accent);background:var(--bg)}
+.btn:disabled{opacity:.35;cursor:not-allowed}
+.btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+.btn.primary:hover{background:#333}
+.btn.sm{padding:3px 9px;font-size:10px}
+
+/* validation warnings */
+.warn-box{margin-top:8px;display:flex;flex-direction:column;gap:4px}
+.warn-item{font-family:var(--mono);font-size:10px;color:var(--yellow);background:var(--yellow-bg);border:1px solid #f0d88a;border-radius:4px;padding:4px 8px;line-height:1.5}
+.clean-ok{display:inline-block;font-family:var(--mono);font-size:10px;color:var(--green);background:var(--green-bg);border:1px solid #a8dfc0;border-radius:4px;padding:4px 8px;margin-top:8px}
+
+/* preview modal */
+#preview-modal{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200;display:flex;align-items:stretch;justify-content:flex-end}
+.preview-panel{width:min(660px,92vw);background:var(--surface);display:flex;flex-direction:column;box-shadow:-4px 0 28px rgba(0,0,0,.2);animation:slideIn .18s ease}
+@keyframes slideIn{from{transform:translateX(30px);opacity:0}to{transform:translateX(0);opacity:1}}
+.preview-hdr{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);flex-shrink:0}
+.preview-hdr-name{font-family:var(--mono);font-size:11px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--sub)}
+.preview-body{flex:1;overflow:auto;background:#e8e6de;display:flex;align-items:center;justify-content:center;min-height:0}
+.preview-body embed{width:100%;height:100%;display:block}
+.preview-body img{max-width:100%;max-height:100%;object-fit:contain;display:block}
+
+/* summary */
+.summary-row{display:flex;gap:20px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px 18px;align-items:center}
+.si{display:flex;flex-direction:column;gap:2px}
+.sv{font-family:var(--mono);font-size:20px;font-weight:600}
+.sl{font-family:var(--mono);font-size:10px;color:var(--sub);text-transform:uppercase;letter-spacing:.06em}
+
+/* toasts */
+.toast-wrap{position:fixed;bottom:24px;right:24px;display:flex;flex-direction:column;gap:8px;z-index:999}
+.toast{font-family:var(--mono);font-size:12px;padding:10px 16px;border-radius:6px;border:1px solid;cursor:pointer;animation:fadeUp .2s ease;max-width:380px;line-height:1.4}
+.toast.ok  {background:var(--green-bg);border-color:#a8dfc0;color:var(--green)}
+.toast.err {background:var(--red-bg);border-color:#f0b8b8;color:var(--red)}
+.toast.info{background:var(--blue-bg);border-color:#b8d0fa;color:var(--blue)}
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+
+.empty-list{padding:40px;text-align:center;font-family:var(--mono);font-size:12px;color:var(--sub)}
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="hdr">
+    <h1>Invoice <em>Processor</em></h1>
+    <span class="hdr-badge">Gemini 2.5 Flash · Free tier</span>
+    <span class="hdr-sub">localhost:8765</span>
+  </div>
+  <hr>
+
+  <!-- drop zone -->
+  <div class="drop-zone" id="dz" onclick="document.getElementById('file-input').click()">
+    <div class="drop-icon">📄</div>
+    <div class="drop-title">Drop invoices here — any layout, any vendor</div>
+    <div class="drop-sub">PDF, PNG, JPG · multiple files OK · Gemini reads the full document</div>
+    <input type="file" id="file-input" accept=".pdf,.png,.jpg,.jpeg" multiple>
+  </div>
+
+  <!-- queue -->
+  <div class="queue-wrap" id="queue-wrap" style="display:none">
+    <div class="queue-hdr">
+      <span class="queue-title">Queue</span>
+      <span class="queue-count" id="queue-count">0 files</span>
+      <div class="queue-actions">
+        <button class="btn" id="btn-all" onclick="extractAll()">▶ Extract All</button>
+        <button class="btn primary" id="btn-export" onclick="exportExcel()" disabled>⬇ Download Excel</button>
+        <button class="btn sm" style="color:#888" onclick="clearAll()">✕ Clear</button>
+      </div>
+    </div>
+    <div id="prog-wrap" style="display:none">
+      <div id="prog-label"></div>
+      <div class="prog-bar"><div class="prog-fill" id="prog-fill" style="width:0%"></div></div>
+    </div>
+    <div id="err-box" class="err-box" style="display:none"></div>
+    <div id="file-list" class="file-list"><div class="empty-list">No files yet.</div></div>
+  </div>
+
+  <!-- summary -->
+  <div class="summary-row" id="summary-row" style="display:none">
+    <div class="si"><span class="sv" id="s-total">0</span><span class="sl">Total</span></div>
+    <div class="si"><span class="sv" style="color:var(--green)" id="s-done">0</span><span class="sl">Done</span></div>
+    <div class="si"><span class="sv" style="color:var(--yellow)" id="s-pend">0</span><span class="sl">Pending</span></div>
+    <div class="si"><span class="sv" style="color:var(--red)" id="s-err">0</span><span class="sl">Errors</span></div>
+    <div class="si" style="margin-left:auto"><span class="sv" id="s-amt">—</span><span class="sl">Total Amount</span></div>
+  </div>
+</div>
+
+<!-- Preview modal — slides in from the right, click backdrop or press Esc to close -->
+<div id="preview-modal" style="display:none" onclick="closePreview(event)">
+  <div class="preview-panel">
+    <div class="preview-hdr">
+      <span class="preview-hdr-name" id="preview-fname"></span>
+      <button class="btn sm" onclick="document.getElementById('preview-modal').style.display='none'">✕ Close</button>
+    </div>
+    <div class="preview-body" id="preview-body"></div>
+  </div>
+</div>
+
+<div class="toast-wrap" id="toasts"></div>
+
+<script>
+// ── Field schema ──────────────────────────────────────────────────────────────
+const SCALAR_FIELDS = [
+  { key:'invoice_number',  label:'Invoice #'       },
+  { key:'invoice_date',    label:'Invoice Date'    },
+  { key:'due_date',        label:'Due Date'        },
+  { key:'vendor_name',     label:'Vendor Name'     },
+  { key:'vendor_address',  label:'Vendor Address'  },
+  { key:'vendor_gstin',    label:'Vendor GSTIN'    },
+  { key:'bill_to',         label:'Bill To'         },
+  { key:'bill_to_gstin',   label:'Bill To GSTIN'   },
+  { key:'subtotal',        label:'Subtotal'        },
+  { key:'discount',        label:'Discount'        },
+  { key:'tax_label',       label:'Tax Label'       },
+  { key:'gst_amount',      label:'GST / Tax'       },
+  { key:'total_amount',    label:'Total Amount'    },
+  { key:'currency',        label:'Currency'        },
+  { key:'payment_terms',   label:'Payment Terms'   },
+  { key:'account_code',    label:'Account Code'    },
+  { key:'notes',           label:'Notes'           },
+];
+const REQUIRED = ['invoice_number','invoice_date','vendor_name','total_amount'];
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let invoices = [], nextId = 0;
+
+// ── Drop / input ──────────────────────────────────────────────────────────────
+const dz = document.getElementById('dz');
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('over'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('over'));
+dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('over'); addFiles([...e.dataTransfer.files]); });
+document.getElementById('file-input').addEventListener('change', e => { addFiles([...e.target.files]); e.target.value=''; });
+
+function addFiles(files) {
+  const valid = files.filter(f => /\.(pdf|png|jpg|jpeg)$/i.test(f.name));
+  if (!valid.length) { toast('No supported files (PDF, PNG, JPG)', 'err'); return; }
+  valid.forEach(f => invoices.push({
+    id: nextId++, file: f, name: f.name, size: f.size,
+    status: 'waiting', fields: {}, error: null,
+    warnings: null,   // null = not yet validated; [] = clean; [...] = issues found
+    previewUrl: null, // created lazily on first preview open
+  }));
+  render();
+  toast(`${valid.length} file(s) added`, 'info');
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function render() {
+  const has = invoices.length > 0;
+  document.getElementById('queue-wrap').style.display  = has ? 'block' : 'none';
+  document.getElementById('summary-row').style.display = has ? 'flex'  : 'none';
+
+  const done = invoices.filter(i => i.status === 'done').length;
+  const pend = invoices.filter(i => i.status === 'waiting').length;
+  const errs = invoices.filter(i => i.status === 'error').length;
+
+  document.getElementById('queue-count').textContent = `${invoices.length} file${invoices.length!==1?'s':''}`;
+  document.getElementById('s-total').textContent = invoices.length;
+  document.getElementById('s-done').textContent  = done;
+  document.getElementById('s-pend').textContent  = pend;
+  document.getElementById('s-err').textContent   = errs;
+  document.getElementById('btn-export').disabled = done === 0;
+
+  const amounts = invoices.filter(i => i.status==='done' && i.fields.total_amount)
+    .map(i => parseFloat(i.fields.total_amount)||0);
+  document.getElementById('s-amt').textContent = amounts.length
+    ? amounts.reduce((a,b)=>a+b,0).toLocaleString('en-IN',{minimumFractionDigits:2}) : '—';
+
+  renderList();
+}
+
+function renderList() {
+  const container = document.getElementById('file-list');
+  if (!invoices.length) { container.innerHTML='<div class="empty-list">No files yet.</div>'; return; }
+
+  container.innerHTML = invoices.map(inv => {
+    const icon = inv.name.toLowerCase().endsWith('.pdf') ? '📄' : '🖼';
+
+    const badge = {
+      waiting:    '<span class="badge bw">· waiting</span>',
+      reading:    '<span class="badge br"><span class="spinner"></span> reading</span>',
+      extracting: '<span class="badge br"><span class="spinner"></span> extracting via Gemini</span>',
+      done:       '<span class="badge bg">✓ extracted</span>',
+      error:      '<span class="badge be">✖ error</span>',
+    }[inv.status] || '';
+
+    // Preview button — always present
+    const previewBtn = `<button class="btn sm" onclick="openPreview(${inv.id})">⊞ Preview</button>`;
+
+    // Primary action changes by status; preview always available
+    const actionBtns = (inv.status==='waiting'||inv.status==='error')
+      ? `<button class="btn sm" onclick="extractOne(${inv.id})">Extract</button>${previewBtn}`
+      : inv.status==='done'
+      ? `<button class="btn sm" onclick="smartClean(${inv.id})" title="Fix dates, strip bad chars, check totals & GSTINs">✦ Smart Clean</button>${previewBtn}<button class="btn sm" style="color:#888" onclick="rm(${inv.id})">Remove</button>`
+      : previewBtn; // reading / extracting
+
+    // Scalar fields grid
+    const fieldsHtml = ['done','error'].includes(inv.status)
+      ? `<div class="file-fields">${SCALAR_FIELDS.map(f => {
+          const v = inv.fields[f.key] || '';
+          const isMissing = REQUIRED.includes(f.key) && !v;
+          return `<div class="field-group">
+            <div class="field-label">${f.label}</div>
+            <input class="field-input${isMissing?' missing':''}"
+              data-id="${inv.id}" data-field="${f.key}"
+              value="${x(v)}" placeholder="${isMissing?'⚠ required':'—'}"
+              oninput="onEdit(this)">
+          </div>`;
+        }).join('')}</div>` : '';
+
+    // Line items table
+    const lineItems = (inv.fields.line_items && Array.isArray(inv.fields.line_items) && inv.fields.line_items.length)
+      ? `<div class="li-section">
+          <div class="li-label">Line Items</div>
+          <table class="li-table">
+            <thead><tr><th>Description</th><th>Qty</th><th>Unit Price</th><th>Amount</th></tr></thead>
+            <tbody>${inv.fields.line_items.map((li,i) => `<tr>
+              <td><input class="li-input" style="min-width:200px" data-id="${inv.id}" data-liidx="${i}" data-lifield="description" value="${x(li.description||'')}" oninput="onLiEdit(this)"></td>
+              <td><input class="li-input" data-id="${inv.id}" data-liidx="${i}" data-lifield="quantity"    value="${x(li.quantity||'')}"    oninput="onLiEdit(this)"></td>
+              <td><input class="li-input" data-id="${inv.id}" data-liidx="${i}" data-lifield="unit_price"  value="${x(li.unit_price||'')}"  oninput="onLiEdit(this)"></td>
+              <td><input class="li-input" data-id="${inv.id}" data-liidx="${i}" data-lifield="amount"      value="${x(li.amount||'')}"      oninput="onLiEdit(this)"></td>
+            </tr>`).join('')}</tbody>
+          </table>
+        </div>` : '';
+
+    // Smart Clean results (null = not run yet; [] = clean; [...issues])
+    const warningsHtml = inv.warnings !== null
+      ? inv.warnings.length
+        ? `<div class="warn-box">${inv.warnings.map(w => `<div class="warn-item">⚠ ${x(w)}</div>`).join('')}</div>`
+        : '<div class="clean-ok">✓ All fields validated — no issues found</div>'
+      : '';
+
+    return `<div class="file-row" id="row-${inv.id}">
+      <div class="file-icon" onclick="openPreview(${inv.id})" title="Preview invoice">${icon}</div>
+      <div class="file-meta">
+        <div class="file-name" title="${x(inv.name)}">${x(inv.name)}</div>
+        <div class="file-size">${fmtSz(inv.size)}</div>
+        <div class="file-status-row">${badge}${actionBtns}</div>
+        ${fieldsHtml}
+        ${lineItems}
+        ${warningsHtml}
+        ${inv.error ? `<div style="font-family:var(--mono);font-size:11px;color:var(--red);margin-top:8px">⚠ ${x(inv.error)}</div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function onEdit(el) {
+  const inv = invoices.find(i => i.id === +el.dataset.id); if (!inv) return;
+  inv.fields[el.dataset.field] = el.value;
+  el.classList.add('edited'); el.classList.remove('missing');
+  updateSummaryAmounts();
+}
+
+function onLiEdit(el) {
+  const inv = invoices.find(i => i.id === +el.dataset.id); if (!inv) return;
+  const idx = +el.dataset.liidx;
+  if (!inv.fields.line_items) inv.fields.line_items = [];
+  if (!inv.fields.line_items[idx]) inv.fields.line_items[idx] = {};
+  inv.fields.line_items[idx][el.dataset.lifield] = el.value;
+  el.classList.add('edited');
+}
+
+function updateSummaryAmounts() {
+  const amounts = invoices.filter(i => i.status==='done' && i.fields.total_amount)
+    .map(i => parseFloat(i.fields.total_amount)||0);
+  document.getElementById('s-amt').textContent = amounts.length
+    ? amounts.reduce((a,b)=>a+b,0).toLocaleString('en-IN',{minimumFractionDigits:2}) : '—';
+}
+
+// ── API call ──────────────────────────────────────────────────────────────────
+async function callGemini(b64, mimeType) {
+  const resp = await fetch('/api/extract', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ b64, mimeType }),
+  });
+  const data = await resp.json();
+  if (!resp.ok) throw new Error(data.error || `Server error ${resp.status}`);
+  return data;
+}
+
+// ── Extract one — with up to 2 retries on rate-limit / network errors ─────────
+async function extractOne(id) {
+  const inv = invoices.find(i => i.id === id); if (!inv) return;
+  setErr(null);
+
+  const MAX_RETRIES = 2;
+  let lastErr;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    if (attempt > 0) {
+      const wait = attempt * 2000; // 2 s, then 4 s
+      inv.status = 'extracting';
+      inv.error  = `Rate limited — retrying in ${wait/1000}s (attempt ${attempt+1}/${MAX_RETRIES+1})`;
+      render();
+      await sleep(wait);
+    }
+
+    inv.status = 'reading'; inv.error = null; render();
+
+    try {
+      const b64 = await fileToB64(inv.file);
+      inv.status = 'extracting'; render();
+
+      const isPdf = inv.file.type === 'application/pdf' || inv.name.toLowerCase().endsWith('.pdf');
+      const mimeType = isPdf ? 'application/pdf' : (inv.file.type || 'image/jpeg');
+
+      const fields = await callGemini(b64, mimeType);
+
+      // Clean numeric fields
+      for (const k of ['total_amount','gst_amount','subtotal','discount']) {
+        if (fields[k]) fields[k] = String(fields[k]).replace(/[₹$£€,\s]/g,'').trim();
+      }
+      // Ensure line_items is array
+      if (!fields.line_items) fields.line_items = [];
+      if (typeof fields.line_items === 'string') {
+        fields.line_items = [{ description: fields.line_items, quantity:'', unit_price:'', amount:'' }];
+      }
+
+      inv.fields   = fields;
+      inv.status   = 'done';
+      inv.error    = null;
+      inv.warnings = null; // reset on re-extract
+      toast(`${inv.name} extracted`, 'ok');
+      render();
+      return;
+
+    } catch (err) {
+      lastErr = err;
+      const retryable = /429|503|rate.limit|quota|network/i.test(err.message);
+      if (!retryable || attempt === MAX_RETRIES) break;
+    }
+  }
+
+  inv.status = 'error';
+  inv.error  = lastErr.message;
+  setErr(`${inv.name} — ${lastErr.message}`);
+  toast('Extraction failed', 'err');
+  render();
+}
+
+// ── Extract all — up to 3 concurrent workers ──────────────────────────────────
+async function extractAll() {
+  const pending = invoices.filter(i => i.status==='waiting'||i.status==='error');
+  if (!pending.length) { toast('Nothing left to extract', 'info'); return; }
+
+  const CONCURRENCY = 3;
+  const pw = document.getElementById('prog-wrap'); pw.style.display = 'block';
+  document.getElementById('btn-all').disabled = true;
+
+  let completed = 0;
+  const total = pending.length;
+
+  function updateProg() {
+    document.getElementById('prog-fill').style.width = Math.round((completed/total)*100)+'%';
+    const active = invoices
+      .filter(i => i.status==='extracting'||i.status==='reading')
+      .map(i => i.name.replace(/\.[^.]+$/,''));
+    document.getElementById('prog-label').textContent = completed < total
+      ? `${completed}/${total} done  ·  processing: ${active.slice(0,2).join(', ')}${active.length>2?'…':''}`
+      : `${total}/${total} done`;
+  }
+
+  // Shared-queue pattern: each worker pulls the next job until queue is empty
+  let queueIdx = 0;
+  async function worker() {
+    while (queueIdx < pending.length) {
+      const inv = pending[queueIdx++];
+      updateProg();
+      await extractOne(inv.id);
+      completed++;
+      updateProg();
+    }
+  }
+
+  await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
+
+  document.getElementById('prog-fill').style.width = '100%';
+  document.getElementById('prog-label').textContent = `Complete — ${completed}/${total} processed`;
+  setTimeout(() => { pw.style.display = 'none'; }, 2000);
+  document.getElementById('btn-all').disabled = false;
+
+  const done = invoices.filter(i => i.status==='done').length;
+  toast(`${done} / ${total} extracted`, done ? 'ok' : 'err');
+}
+
+// ── Smart Clean ───────────────────────────────────────────────────────────────
+function smartClean(id) {
+  const inv = invoices.find(i => i.id === id);
+  if (!inv || inv.status !== 'done') return;
+
+  let changes = 0;
+  const warnings = [];
+
+  // 1. Strip stray non-numeric characters from money fields
+  for (const k of ['total_amount','gst_amount','subtotal','discount']) {
+    if (inv.fields[k]) {
+      const clean = String(inv.fields[k]).replace(/[^\d.]/g,'').trim();
+      if (clean !== String(inv.fields[k])) { inv.fields[k] = clean; changes++; }
+    }
+  }
+
+  // 2. Normalize dates → DD/MM/YYYY
+  for (const k of ['invoice_date','due_date']) {
+    if (inv.fields[k]) {
+      const normalized = normalizeDate(inv.fields[k]);
+      if (normalized && normalized !== inv.fields[k]) { inv.fields[k] = normalized; changes++; }
+    }
+  }
+
+  // 3. Line-item sum vs total_amount mismatch (tolerance 0.50 for rounding)
+  if (inv.fields.line_items && inv.fields.line_items.length) {
+    const liSum = inv.fields.line_items.reduce((s, li) => s + (parseFloat(li.amount)||0), 0);
+    const total = parseFloat(inv.fields.total_amount) || 0;
+    if (liSum > 0 && total > 0 && Math.abs(liSum - total) > 0.50) {
+      warnings.push(
+        `Line items sum (${liSum.toFixed(2)}) ≠ Total amount (${total.toFixed(2)}) — check for missing items or tax`
+      );
+    }
+  }
+
+  // 4. GSTIN format: 2 digits + 5 alpha + 4 digits + 1 alpha + 1 digit + Z + 1 alphanum
+  const gstinRe = /^\d{2}[A-Z]{5}\d{4}[A-Z]\d[A-Z]\d$/i;
+  for (const k of ['vendor_gstin','bill_to_gstin']) {
+    const g = (inv.fields[k]||'').replace(/\s/g,'');
+    if (g && !gstinRe.test(g))
+      warnings.push(`${k==='vendor_gstin'?'Vendor':'Bill-to'} GSTIN "${g}" may be invalid (expected 15-char format)`);
+  }
+
+  // 5. Flag still-empty required fields
+  for (const k of REQUIRED) {
+    if (!inv.fields[k])
+      warnings.push(`Required field "${k.replace(/_/g,' ')}" is empty`);
+  }
+
+  inv.warnings = warnings;
+  render();
+  updateSummaryAmounts();
+
+  if (changes > 0 && warnings.length > 0)
+    toast(`${changes} field(s) cleaned · ${warnings.length} warning(s)`, 'info');
+  else if (changes > 0)
+    toast(`${changes} field(s) cleaned`, 'ok');
+  else if (warnings.length > 0)
+    toast(`${warnings.length} issue(s) found — see below`, 'info');
+  else
+    toast('All fields look good', 'ok');
+}
+
+// Accepts many common date formats, returns DD/MM/YYYY or null if unrecognised
+function normalizeDate(s) {
+  s = s.trim();
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) return s;                              // DD/MM/YYYY — already correct
+  if (/^\d{2}-\d{2}-\d{4}$/.test(s))   return s.replace(/-/g,'/');             // DD-MM-YYYY
+  if (/^\d{2}\.\d{2}\.\d{4}$/.test(s)) return s.replace(/\./g,'/');            // DD.MM.YYYY
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);                            // YYYY-MM-DD (ISO)
+  if (iso) return `${iso[3]}/${iso[2]}/${iso[1]}`;
+  const MON = {jan:'01',feb:'02',mar:'03',apr:'04',may:'05',jun:'06',
+               jul:'07',aug:'08',sep:'09',oct:'10',nov:'11',dec:'12'};
+  const mt = s.match(/^(\d{1,2})[\s\-]([A-Za-z]{3})[\s\-](\d{4})$/);          // DD Mon YYYY
+  if (mt) { const m=MON[mt[2].toLowerCase()]; if(m) return `${mt[1].padStart(2,'0')}/${m}/${mt[3]}`; }
+  const mt2 = s.match(/^([A-Za-z]{3})[\s\-](\d{1,2})[\s\-,]*(\d{4})$/);       // Mon DD YYYY
+  if (mt2) { const m=MON[mt2[1].toLowerCase()]; if(m) return `${mt2[2].padStart(2,'0')}/${m}/${mt2[3]}`; }
+  return null;
+}
+
+// ── Preview modal ─────────────────────────────────────────────────────────────
+function openPreview(id) {
+  const inv = invoices.find(i => i.id === id); if (!inv) return;
+  // Create object URL once; reuse on subsequent opens (freed when invoice is removed)
+  if (!inv.previewUrl) inv.previewUrl = URL.createObjectURL(inv.file);
+
+  document.getElementById('preview-fname').textContent = inv.name;
+  const body = document.getElementById('preview-body');
+  const isPdf = inv.name.toLowerCase().endsWith('.pdf');
+  body.innerHTML = isPdf
+    ? `<embed src="${inv.previewUrl}" type="application/pdf" width="100%" height="100%">`
+    : `<img src="${inv.previewUrl}" alt="${x(inv.name)}">`;
+
+  document.getElementById('preview-modal').style.display = 'flex';
+}
+
+function closePreview(e) {
+  if (e.target === document.getElementById('preview-modal'))
+    document.getElementById('preview-modal').style.display = 'none';
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') document.getElementById('preview-modal').style.display = 'none';
+});
+
+// ── Export Excel ──────────────────────────────────────────────────────────────
+function exportExcel() {
+  const done = invoices.filter(i => i.status === 'done');
+  if (!done.length) { toast('Nothing to export', 'err'); return; }
+
+  const wb = XLSX.utils.book_new();
+
+  // ── Sheet 1: Summary ledger ───────────────────────────────────────────────
+  const hdr = ['#','File','Invoice #','Date','Due Date','Vendor','Vendor GSTIN',
+               'Bill To','Bill To GSTIN','Subtotal','Discount','Tax','GST/Tax Amt',
+               'Total','Currency','Payment Terms','Account','Notes','Processed At'];
+  const rows = done.map((inv, i) => {
+    const f = inv.fields;
+    return [
+      i+1, inv.name,
+      f.invoice_number||'', f.invoice_date||'', f.due_date||'',
+      f.vendor_name||'', f.vendor_gstin||'',
+      f.bill_to||'', f.bill_to_gstin||'',
+      num(f.subtotal), num(f.discount), f.tax_label||'',
+      num(f.gst_amount), num(f.total_amount),
+      f.currency||'', f.payment_terms||'', f.account_code||'', f.notes||'',
+      new Date().toISOString().replace('T',' ').slice(0,19),
+    ];
+  });
+  const de = rows.length + 1;
+  rows.push(['','TOTAL','','','','','','','','','','',
+    `=SUM(M2:M${de})`, `=SUM(N2:N${de})`, '','','','','']);
+
+  const ws1 = XLSX.utils.aoa_to_sheet([hdr, ...rows]);
+  ws1['!cols'] = [{wch:4},{wch:28},{wch:16},{wch:13},{wch:13},{wch:24},{wch:18},
+                  {wch:22},{wch:18},{wch:12},{wch:10},{wch:12},{wch:12},{wch:12},
+                  {wch:10},{wch:16},{wch:13},{wch:30},{wch:20}];
+  XLSX.utils.book_append_sheet(wb, ws1, 'All Invoices');
+
+  // ── Sheet 2: Line Items detail ────────────────────────────────────────────
+  const liHdr = ['Invoice #','Vendor','Date','Description','Quantity','Unit Price','Amount'];
+  const liRows = [];
+  done.forEach(inv => {
+    const f = inv.fields;
+    (f.line_items||[]).forEach(li => {
+      liRows.push([f.invoice_number||'', f.vendor_name||'', f.invoice_date||'',
+        li.description||'', li.quantity||'', num(li.unit_price), num(li.amount)]);
+    });
+  });
+  if (liRows.length) {
+    const ws2 = XLSX.utils.aoa_to_sheet([liHdr, ...liRows]);
+    ws2['!cols'] = [{wch:16},{wch:24},{wch:13},{wch:40},{wch:10},{wch:13},{wch:13}];
+    XLSX.utils.book_append_sheet(wb, ws2, 'Line Items');
+  }
+
+  // ── One sheet per vendor ──────────────────────────────────────────────────
+  const byV = {};
+  done.forEach(inv => {
+    const v = (inv.fields.vendor_name||'Unknown').trim();
+    if (!byV[v]) byV[v] = [];
+    byV[v].push(inv);
+  });
+  Object.entries(byV).forEach(([vendor, vinvs]) => {
+    const vhdr = ['#','File','Invoice #','Date','GST Amt','Total','Currency','Account'];
+    const vrows = vinvs.map((inv,i) => {
+      const f = inv.fields;
+      return [i+1, inv.name, f.invoice_number||'', f.invoice_date||'',
+              num(f.gst_amount), num(f.total_amount), f.currency||'', f.account_code||''];
+    });
+    const ve = vrows.length+1;
+    vrows.push(['','TOTAL','','','',`=SUM(F2:F${ve})`,'','']);
+    const vws = XLSX.utils.aoa_to_sheet([vhdr, ...vrows]);
+    vws['!cols'] = [{wch:4},{wch:28},{wch:16},{wch:13},{wch:13},{wch:13},{wch:10},{wch:13}];
+    XLSX.utils.book_append_sheet(wb, vws, vendor.replace(/[:\\/?*[\]]/g,'').slice(0,31)||'Vendor');
+  });
+
+  const ts = new Date().toISOString().replace(/[:.]/g,'-').slice(0,19);
+  XLSX.writeFile(wb, `invoices_${ts}.xlsx`);
+  toast(`Exported — ${done.length} invoices · ${Object.keys(byV).length} vendors · line items sheet`, 'ok');
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function num(v) { if (!v) return ''; const n = parseFloat(String(v).replace(/[^\d.]/g,'')); return isNaN(n) ? v : n; }
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+function rm(id) {
+  const inv = invoices.find(i => i.id === id);
+  if (inv && inv.previewUrl) URL.revokeObjectURL(inv.previewUrl); // free memory
+  invoices = invoices.filter(i => i.id !== id);
+  render();
+}
+function clearAll() {
+  invoices.forEach(inv => { if (inv.previewUrl) URL.revokeObjectURL(inv.previewUrl); });
+  invoices = [];
+  render();
+}
+function setErr(msg) {
+  const el = document.getElementById('err-box');
+  if (msg) { el.textContent = `⚠ ${msg}`; el.style.display='block'; }
+  else el.style.display='none';
+}
+function fileToB64(file) {
+  return new Promise((res,rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result.split(',')[1]);
+    r.onerror = () => rej(new Error('FileReader failed'));
+    r.readAsDataURL(file);
+  });
+}
+function fmtSz(b) { return b<1024?b+' B':b<1048576?(b/1024).toFixed(1)+' KB':(b/1048576).toFixed(1)+' MB'; }
+function x(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function toast(msg, type='info') {
+  const wrap = document.getElementById('toasts');
+  const el = document.createElement('div');
+  el.className=`toast ${type}`; el.textContent=msg; el.onclick=()=>el.remove();
+  wrap.appendChild(el); setTimeout(()=>el.remove(), 5000);
+}
+</script>
+</body>
+</html>
